@@ -676,6 +676,18 @@ class getData(SearchList):
         # Find the number of decimals to round the result based on the skin.conf
         rain_round = skin_dict["Units"]["StringFormats"].get(skin_rain_unit, "%.2f")
 
+## edit MaKi Beginn
+        # Rain lookups
+        # Find the group_name for rain in database
+        sunshineDur_unit = converter.group_unit_dict["group_deltatime"]
+
+        # Find the group_name for rain in the skin.conf
+        skin_sunshineDur_unit = self.generator.converter.group_unit_dict["group_deltatime"]
+
+        # Find the number of decimals to round the result based on the skin.conf
+        sunshineDur_round = skin_dict["Units"]["StringFormats"].get(skin_sunshineDur_unit, "%.1f")
+## edit MaKi Ende
+
         rainiest_day_sql = """
             SELECT dateTime, sum FROM archive_day_rain
             WHERE dateTime >= ? ORDER BY sum DESC LIMIT 1;
@@ -810,6 +822,144 @@ class getData(SearchList):
             at_rain_highest_year_query[0],
             locale.format_string("%g", float(at_rain_highest_year_converted)),
         ]
+
+## edit MaKi Beginn
+        # suniest day
+        suniest_day_sql = """
+            SELECT dateTime, sum FROM archive_day_sunshineDur
+            WHERE dateTime >= ? ORDER BY sum DESC LIMIT 1;
+        """
+        suniest_day_query = wx_manager.getSql(suniest_day_sql, (year_start_epoch,))
+        if suniest_day_query is not None:
+            suniest_day_tuple = (suniest_day_query[1], sunshineDur_unit, "group_deltatime")
+            suniest_day_converted = (
+                sunshineDur_round % self.generator.converter.convert(suniest_day_tuple)[0]
+            )
+            suniest_day = [
+                suniest_day_query[0],
+                locale.format_string("%g", float(suniest_day_converted)),
+            ]
+        else:
+            suniest_day = [
+                calendar.timegm(time.gmtime()),
+                locale.format_string("%.2f", 0),
+            ]
+
+        at_suniest_day_sql = """
+            SELECT dateTime, sum FROM archive_day_sunshineDur
+            ORDER BY sum DESC LIMIT 1;
+        """
+        at_suniest_day_query = wx_manager.getSql(at_suniest_day_sql)
+        at_suniest_day_tuple = (at_suniest_day_query[1], sunshineDur_unit, "group_deltatime")
+        at_suniest_day_converted = (
+            sunshineDur_round % self.generator.converter.convert(at_suniest_day_tuple)[0]
+        )
+        at_suniest_day = [
+            at_suniest_day_query[0],
+            locale.format_string("%g", float(at_suniest_day_converted)),
+        ]
+
+        # Find what kind of database we're working with and specify the
+        # correctly tailored SQL Query for each type of database
+        data_binding = config_dict["StdArchive"]["data_binding"]
+        database = config_dict["DataBindings"][data_binding]["database"]
+        database_type = config_dict["Databases"][database]["database_type"]
+        driver = config_dict["DatabaseTypes"][database_type]["driver"]
+        current_year = str(now.year)
+        if driver == "weedb.sqlite":
+            year_suniest_month_sql = """
+                SELECT strftime('%m', datetime(dateTime, 'unixepoch', 'localtime')) AS month, SUM(sum) AS total
+                FROM archive_day_sunshineDur
+                WHERE strftime('%Y', datetime(dateTime, 'unixepoch', 'localtime')) = ?
+                GROUP BY month ORDER BY total DESC LIMIT 1;
+            """
+            at_suniest_month_sql = """
+                SELECT strftime('%m', datetime(dateTime, 'unixepoch', 'localtime')) AS month, strftime('%Y', datetime(dateTime, 'unixepoch', 'localtime')) AS year, SUM(sum) AS total
+                FROM archive_day_sunshineDur
+                GROUP BY month, year ORDER BY total DESC LIMIT 1;
+            """
+            year_sunshineDur_data_sql = """
+                SELECT dateTime, sum FROM archive_day_sunshineDur
+                WHERE strftime('%Y', datetime(dateTime, 'unixepoch', 'localtime')) = ?;
+            """
+            at_sunshineDur_highest_year_sql = """
+                SELECT strftime('%Y', datetime(dateTime, 'unixepoch', 'localtime')) AS year, SUM(sum) AS total
+                FROM archive_day_sunshineDur
+                GROUP BY year ORDER BY total DESC LIMIT 1;
+            """
+        elif driver == "weedb.mysql":
+            year_suniest_month_sql = """
+                SELECT FROM_UNIXTIME(dateTime, '%%m') AS month, ROUND(SUM(sum), 2) AS total
+                FROM archive_day_sunshineDur
+                WHERE YEAR(FROM_UNIXTIME(dateTime)) = ?
+                GROUP BY month ORDER BY total DESC LIMIT 1;
+            """
+            at_suniest_month_sql = """
+                SELECT FROM_UNIXTIME(dateTime, '%%m') AS month, FROM_UNIXTIME(dateTime, '%%Y') AS year, ROUND(SUM(sum), 2) AS total
+                FROM archive_day_sunshineDur
+                GROUP BY month, year ORDER BY total DESC LIMIT 1;
+            """
+            year_sunshineDur_data_sql = """
+                SELECT dateTime, ROUND(sum, 2) FROM archive_day_sunshineDur
+                WHERE year(FROM_UNIXTIME(dateTime)) = ?;
+            """
+            at_sunshineDur_highest_year_sql = """
+                SELECT FROM_UNIXTIME(dateTime, '%%Y') AS year, ROUND(SUM(sum), 2) AS total
+                FROM archive_day_sunshineDur
+                GROUP BY year ORDER BY total DESC LIMIT 1;
+            """
+
+        # suniest month
+        year_suniest_month_query = wx_manager.getSql(
+            year_suniest_month_sql, (current_year,)
+        )
+        if year_suniest_month_query is not None:
+            year_suniest_month_tuple = (
+                year_suniest_month_query[1],
+                sunshineDur_unit,
+                "group_deltatime",
+            )
+            year_suniest_month_converted = (
+                sunshineDur_round
+                % self.generator.converter.convert(year_suniest_month_tuple)[0]
+            )
+            year_suniest_month_name = calendar.month_name[
+                int(year_suniest_month_query[0])
+            ]
+            year_suniest_month = [
+                year_suniest_month_name,
+                locale.format_string("%g", float(year_suniest_month_converted)),
+            ]
+        else:
+            year_suniest_month = ["N/A", 0.0]
+
+        # All time suniest month
+        at_suniest_month_query = wx_manager.getSql(at_suniest_month_sql)
+        at_suniest_month_tuple = (at_suniest_month_query[2], sunshineDur_unit, "group_deltatime")
+        at_suniest_month_converted = (
+            sunshineDur_round % self.generator.converter.convert(at_suniest_month_tuple)[0]
+        )
+        at_suniest_month_name = calendar.month_name[int(at_suniest_month_query[0])]
+        at_suniest_month = [
+            f"{at_suniest_month_name} {at_suniest_month_query[1]}",
+            locale.format_string("%g", float(at_suniest_month_converted)),
+        ]
+
+        # All time suniest year
+        at_sunshineDur_highest_year_query = wx_manager.getSql(at_sunshineDur_highest_year_sql)
+        at_sunshineDur_highest_year_tuple = (
+            at_sunshineDur_highest_year_query[1],
+            sunshineDur_unit,
+            "group_deltatime",
+        )
+        at_sunshineDur_highest_year_converted = (
+            sunshineDur_round % self.generator.converter.convert(at_sunshineDur_highest_year_tuple)[0]
+        )
+        at_sunshineDur_highest_year = [
+            at_sunshineDur_highest_year_query[0],
+            locale.format_string("%g", float(at_sunshineDur_highest_year_converted)),
+        ]
+## edit MaKi Ende
 
         # Consecutive days with/without rainfall
         year_days_with_rain_total = 0
@@ -2041,6 +2191,20 @@ class getData(SearchList):
                 else:
                     station_obs_html += '<i class="fa fa-arrow-up barometer-up"></i>'
                 station_obs_html += "</span>"  # Close the span
+## edit MaKi Beginn
+            if obs=='outHumidity':
+                humabs_output = getattr(current,'outHumAbs',None)
+                if humabs_output is not None:
+                    humabs_output = humabs_output.gram_per_meter_cubed
+                    station_obs_html += "&nbsp;<span class='border-left'>&nbsp;</span>"
+                    station_obs_html += f"<span class='outHumAbs'>%s</span><!-- AJAX -->" % humabs_output
+            if obs=='radiation2':
+                maxSolarRad_output = getattr(current,'maxSolarRad',None)
+                if maxSolarRad_output is not None:
+                    maxSolarRad_output = maxSolarRad_output.watt_per_meter_squared
+                    station_obs_html += "&nbsp;<span class='border-left'>&nbsp;</span>"
+                    station_obs_html += f"<span class='maxSolarRad'>%s</span><!-- AJAX -->" % maxSolarRad_output
+## edit MaKi Ende
             station_obs_html += "</td>"
             station_obs_html += "</tr>"
 
@@ -2189,9 +2353,20 @@ class getData(SearchList):
             "at_outTemp_range_min": at_outTemp_range_min,
             "rainiest_day": rainiest_day,
             "at_rainiest_day": at_rainiest_day,
+## edit MaKi Beginn
+            "suniest_day": suniest_day,
+            "at_suniest_day": at_suniest_day,
+## edit MaKi Ende
             "year_rainiest_month": year_rainiest_month,
             "at_rainiest_month": at_rainiest_month,
+## edit MaKi Beginn
+            "year_suniest_month": year_suniest_month,
+            "at_suniest_month": at_suniest_month,
+## edit MaKi Ende
             "at_rain_highest_year": at_rain_highest_year,
+## edit MaKi Beginn
+            "at_sunshineDur_highest_year": at_sunshineDur_highest_year,
+## edit MaKi Ende
             "year_days_with_rain": year_days_with_rain,
             "year_days_without_rain": year_days_without_rain,
             "at_days_with_rain": at_days_with_rain,
@@ -2753,6 +2928,8 @@ class HighchartsJsonGenerator(weewx.reportengine.ReportGenerator):
                         obs_label = "hailDur"
                     elif observation_type == "sunshineDurTotal":
                         obs_label = "sunshineDur"
+                    elif observation_type == "ETTotal":
+                        obs_label = "ET"
                     elif observation_type == "rainTotal":
                         obs_label = "rain"
                     elif (
@@ -2877,6 +3054,8 @@ class HighchartsJsonGenerator(weewx.reportengine.ReportGenerator):
                             rounding_obs_lookup = "hailDur"
                         elif observation_type == "sunshineDurTotal":
                             rounding_obs_lookup = "sunshineDur"
+                        elif observation_type == "ETTotal":
+                            rounding_obs_lookup = "ET"
                         elif observation_type == "rainTotal":
                             rounding_obs_lookup = "rain"
                         elif observation_type == "weatherRange":
@@ -3444,6 +3623,10 @@ class HighchartsJsonGenerator(weewx.reportengine.ReportGenerator):
                 aggregate_type = "sum"
         elif observation == "sunshineDurTotal":
             obs_lookup = "sunshineDur"
+## edit MaKi Beginn
+        elif observation == "ETTotal":
+            obs_lookup = "ET"
+## edit MaKi Ende
             # Force sum on this observation
             if aggregate_interval:
                 aggregate_type = "sum"
@@ -3766,7 +3949,17 @@ class HighchartsJsonGenerator(weewx.reportengine.ReportGenerator):
                     continue
                 sunshineDur_count = sunshineDur_count + sunshineDur
                 obs_round_vt.append(round(sunshineDur_count, 2))
-
+## edit MaKi Beginn
+        elif observation == "ETTotal":
+            ET_count = 0
+            obs_round_vt = []
+            for ET in obs_vt[0]:
+                if ET is None or ET == "":
+                    obs_round_vt.append(ET)
+                    continue
+                ET_count = ET_count + ET
+                obs_round_vt.append(round(ET_count, 2))
+## edit MaKi Ende
         # Special handling for the rain.
         elif observation == "rainTotal":
             # The WeeWX "rain" observation is really "bucket tips". This
